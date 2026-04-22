@@ -32,5 +32,5 @@ Glamour Gate is a premium customer registration and identity verification system
 
 1. Clone the repository
 ```bash
-git clone https://github.com/YOUR_USERNAME/glamour-gate.git
+git clone https://github.com/kavizzz03/ASB_Glamour_Gate_Loyal_Customers.git
 cd glamour-gate
