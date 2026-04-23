@@ -11,6 +11,8 @@ function CustomerForm() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
+  const [existingUserData, setExistingUserData] = useState(null);
+  const [isCompletelyRegistered, setIsCompletelyRegistered] = useState(false);
 
   const [details, setDetails] = useState({
     name: "",
@@ -33,6 +35,22 @@ function CustomerForm() {
   // ======================= VALIDATION HELPERS =======================
   const isValidSLPhone = (num) => /^947[0-9]{8}$/.test(num);
   const isValidSLNic = (nic) => /^[0-9]{9}[VvXx]$/.test(nic) || /^[0-9]{12}$/.test(nic);
+
+  // Check if user has complete registration data
+  const isCompleteRegistration = (userData) => {
+    return (
+      userData.name && 
+      userData.name.trim() !== "" &&
+      userData.address && 
+      userData.address.trim() !== "" &&
+      userData.nic && 
+      userData.nic.trim() !== "" &&
+      userData.dob && 
+      userData.dob.trim() !== "" &&
+      userData.gender && 
+      userData.gender.trim() !== ""
+    );
+  };
 
   const getBirthdayFromNIC = (nic) => {
     let year, days;
@@ -77,7 +95,9 @@ function CustomerForm() {
     }
     const nicBirthday = getBirthdayFromNIC(details.nic);
     if (nicBirthday !== details.dob) {
-      setError(`Birthday mismatch! According to NIC, your birthday is ${nicBirthday}.`);
+      setError(
+        `❌ Birthday verification failed. The date of birth you entered does not match the records associated with your NIC. Please check and enter your correct date of birth.`
+      );
       return false;
     }
     setError("");
@@ -94,6 +114,46 @@ function CustomerForm() {
     window.open(socialLinks[platform], "_blank");
   };
 
+  // Check if user already exists (after OTP verification)
+  const checkExistingUser = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API_BASE}/check_user.php`, { phone });
+      
+      // Check if user exists in database
+      if (res.data.success === true && res.data.data) {
+        const userData = res.data.data;
+        const hasCompleteData = isCompleteRegistration(userData);
+        
+        if (hasCompleteData) {
+          // User has ALL information (name, address, nic, dob, gender)
+          setIsCompletelyRegistered(true);
+          setExistingUserData(userData);
+          setStep(5); // Show existing user info with edit option
+        } else {
+          // User exists but has incomplete data (only phone number or missing fields)
+          // Pre-fill available data and continue as new registration
+          setDetails({
+            name: userData.name || "",
+            address: userData.address || "",
+            nic: userData.nic || "",
+            dob: userData.dob || "",
+            gender: userData.gender || "",
+          });
+          setStep(3); // Continue to registration form
+        }
+      } else {
+        // New user - no record found
+        setStep(3);
+      }
+    } catch (err) {
+      console.error("Check user error:", err);
+      // If check fails, proceed to new registration
+      setStep(3);
+    }
+    setLoading(false);
+  };
+
   // ======================= API CALLS =======================
   const sendOTP = async () => {
     setError("");
@@ -104,8 +164,11 @@ function CustomerForm() {
     setLoading(true);
     try {
       const res = await axios.post(`${API_BASE}/send_otp.php`, { phone });
-      if (res.data.success) setStep(2);
-      else setError(res.data.message);
+      if (res.data.success) {
+        setStep(2);
+      } else {
+        setError(res.data.message);
+      }
     } catch (err) {
       setError("Network Error. Please try again.");
     }
@@ -121,8 +184,12 @@ function CustomerForm() {
     setLoading(true);
     try {
       const res = await axios.post(`${API_BASE}/verify_otp.php`, { phone, otp });
-      if (res.data.status === "verified") setStep(3);
-      else setError(res.data.message || "Invalid OTP");
+      if (res.data.status === "verified") {
+        // After OTP verification, check if user already exists
+        await checkExistingUser();
+      } else {
+        setError(res.data.message || "Invalid OTP");
+      }
     } catch (err) {
       setError("Verification failed");
     }
@@ -153,6 +220,20 @@ function CustomerForm() {
     setLoading(false);
   };
 
+  const handleEditInfo = () => {
+    if (existingUserData) {
+      setDetails({
+        name: existingUserData.name || "",
+        address: existingUserData.address || "",
+        nic: existingUserData.nic || "",
+        dob: existingUserData.dob || "",
+        gender: existingUserData.gender || "",
+      });
+    }
+    setIsCompletelyRegistered(false);
+    setStep(3);
+  };
+
   const handleSignOut = () => {
     setStep(1);
     setPhone("");
@@ -160,6 +241,8 @@ function CustomerForm() {
     setDetails({ name: "", address: "", nic: "", dob: "", gender: "" });
     setError("");
     setSuccess(false);
+    setExistingUserData(null);
+    setIsCompletelyRegistered(false);
   };
 
   // Success Screen
@@ -187,69 +270,49 @@ function CustomerForm() {
       {/* Main Card */}
       <div className="w-full max-w-2xl glass-card rounded-3xl shadow-2xl overflow-hidden transition-all duration-300 animate-fade-up">
         
-        {/* Header with Larger Logo */}
-<div className="relative bg-gradient-to-r from-[#001d3d] to-[#000b1a] px-6 py-5 border-b border-cyan-500/30">
-  <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl"></div>
-  <div className="flex justify-between items-center flex-wrap gap-3 relative z-10">
-    <div className="flex items-center gap-4">
-      {/* Logo with different corner options */}
-      <div className="relative group">
-        {/* Option 1: Slightly rounded corners (rounded-lg) */}
-        <div className="w-14 h-14 rounded-lg overflow-hidden bg-gradient-to-br from-cyan-500 to-purple-600 shadow-lg ring-2 ring-cyan-400/50 group-hover:ring-cyan-400 transition-all duration-300">
-          <img 
-            src="/assets/logo.png" 
-            alt="Glamour Gate Logo" 
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              e.target.onerror = null;
-              e.target.style.display = 'none';
-              e.target.parentElement.innerHTML = '<i class="fas fa-crown text-2xl text-white"></i>';
-            }}
-          />
+        {/* Header with Logo */}
+        <div className="relative bg-gradient-to-r from-[#001d3d] to-[#000b1a] px-6 py-5 border-b border-cyan-500/30">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl"></div>
+          <div className="flex justify-between items-center flex-wrap gap-3 relative z-10">
+            <div className="flex items-center gap-4">
+              <div className="relative group">
+                <div className="w-14 h-14 rounded-lg overflow-hidden bg-gradient-to-br from-cyan-500 to-purple-600 shadow-lg ring-2 ring-cyan-400/50 group-hover:ring-cyan-400 transition-all duration-300">
+                  <img 
+                    src="/assets/logo.png" 
+                    alt="Glamour Gate Logo" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.style.display = 'none';
+                      e.target.parentElement.innerHTML = '<i className="fas fa-crown text-2xl text-white"></i>';
+                    }}
+                  />
+                </div>
+              </div>
+              <div>
+                <h1 className="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-400 bg-clip-text text-transparent tracking-tight">
+                  GLAMOUR GATE
+                </h1>
+                <p className="text-cyan-300/80 text-xs mt-1">
+                  <i className="fas fa-map-marker-alt mr-1"></i> Negombo • The Fashion Landmark in Sri Lanka
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="text-xs text-gray-400">Local Time</p>
+                <p className="text-sm font-mono text-cyan-300 font-semibold">{currentTime}</p>
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-xl text-white transition flex items-center gap-1 border border-white/20"
+                aria-label="Sign out"
+              >
+                <i className="fas fa-sign-out-alt"></i> Exit
+              </button>
+            </div>
+          </div>
         </div>
-        
-        {/* Option 2: Fully rounded (rounded-full) - Uncomment to use */}
-        {/* <div className="w-14 h-14 rounded-full overflow-hidden bg-gradient-to-br from-cyan-500 to-purple-600 shadow-lg">
-          <img 
-            src="/assets/logo.png" 
-            alt="Glamour Gate Logo" 
-            className="w-full h-full object-cover"
-          />
-        </div> */}
-        
-        {/* Option 3: Only top corners rounded */}
-        {/* <div className="w-14 h-14 rounded-t-2xl overflow-hidden bg-gradient-to-br from-cyan-500 to-purple-600 shadow-lg">
-          <img 
-            src="/assets/logo.png" 
-            alt="Glamour Gate Logo" 
-            className="w-full h-full object-cover"
-          />
-        </div> */}
-      </div>
-      <div>
-        <h1 className="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-400 bg-clip-text text-transparent tracking-tight">
-          GLAMOUR GATE
-        </h1>
-        <p className="text-cyan-300/80 text-xs mt-1">
-          <i className="fas fa-map-marker-alt mr-1"></i> Negombo • The Fashion Landmark in Sri Lanka
-        </p>
-      </div>
-    </div>
-    <div className="flex items-center gap-3">
-      <div className="text-right">
-        <p className="text-xs text-gray-400">Local Time</p>
-        <p className="text-sm font-mono text-cyan-300 font-semibold">{currentTime}</p>
-      </div>
-      <button
-        onClick={handleSignOut}
-        className="px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-xl text-white transition flex items-center gap-1 border border-white/20"
-        aria-label="Sign out"
-      >
-        <i className="fas fa-sign-out-alt"></i> Exit
-      </button>
-    </div>
-  </div>
-</div>
 
         {/* Error Alert */}
         {error && (
@@ -264,19 +327,21 @@ function CustomerForm() {
           </div>
         )}
 
-        {/* Step Indicator */}
-        <div className="px-6 pt-6">
-          <div className="flex items-center justify-between max-w-md mx-auto">
-            {[1, 2, 3, 4].map((s) => (
-              <React.Fragment key={s}>
-                <div className={`step-dot ${step > s ? 'step-completed' : step === s ? 'step-active' : 'step-pending'}`}>
-                  {step > s ? <i className="fas fa-check text-xs"></i> : s}
-                </div>
-                {s < 4 && <div className={`flex-1 h-0.5 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-cyan-500 to-emerald-500' : 'bg-white/20'}`}></div>}
-              </React.Fragment>
-            ))}
+        {/* Step Indicator - Only show for steps 1-4 */}
+        {step !== 5 && (
+          <div className="px-6 pt-6">
+            <div className="flex items-center justify-between max-w-md mx-auto">
+              {[1, 2, 3, 4].map((s) => (
+                <React.Fragment key={s}>
+                  <div className={`step-dot ${step > s ? 'step-completed' : step === s ? 'step-active' : 'step-pending'}`}>
+                    {step > s ? <i className="fas fa-check text-xs"></i> : s}
+                  </div>
+                  {s < 4 && <div className={`flex-1 h-0.5 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-cyan-500 to-emerald-500' : 'bg-white/20'}`}></div>}
+                </React.Fragment>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Step Content */}
         <div className="p-6 md:p-8">
@@ -413,9 +478,55 @@ function CustomerForm() {
               </div>
             </div>
           )}
+
+          {/* Step 5: Completely Registered User View */}
+          {step === 5 && existingUserData && isCompletelyRegistered && (
+            <div className="space-y-5 animate-fade-in">
+              <div className="text-center mb-4">
+                <div className="w-20 h-20 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-user-check text-3xl text-white"></i>
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-2">Welcome Back!</h3>
+                <p className="text-gray-400">You are already registered with Glamour Gate</p>
+                <p className="text-xs text-emerald-400 mt-2">
+                  <i className="fas fa-check-circle mr-1"></i> Complete Profile
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 rounded-2xl p-6 border border-emerald-500/20">
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  <i className="fas fa-id-card text-emerald-400"></i> Your Registered Information
+                </h3>
+                <div className="space-y-3">
+                  {[
+                    { label: "Full Name", value: existingUserData.name, icon: "fa-user" },
+                    { label: "NIC Number", value: existingUserData.nic, icon: "fa-id-card" },
+                    { label: "Gender", value: existingUserData.gender, icon: existingUserData.gender === "Female" ? "fa-venus-mars" : "fa-mars", color: existingUserData.gender === "Female" ? "text-pink-400" : "text-cyan-400" },
+                    { label: "Date of Birth", value: existingUserData.dob, icon: "fa-calendar" },
+                    { label: "Phone Number", value: phone, icon: "fa-phone" },
+                    { label: "Address", value: existingUserData.address, icon: "fa-home" },
+                  ].map((item, idx) => (
+                    <div key={idx} className="flex flex-wrap justify-between items-center py-2 border-b border-white/10">
+                      <span className="text-gray-400 text-sm flex items-center gap-2"><i className={`fas ${item.icon} text-emerald-400`}></i> {item.label}:</span>
+                      <strong className={`text-white text-right ${item.color || ''}`}>{item.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 flex-col sm:flex-row">
+                <button onClick={handleEditInfo} className="flex-1 btn-primary flex items-center justify-center gap-2">
+                  <i className="fas fa-edit"></i> Update Information
+                </button>
+                <button onClick={handleSignOut} className="flex-1 btn-secondary flex items-center justify-center gap-2">
+                  <i className="fas fa-sign-out-alt"></i> Sign Out
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Footer with Social Buttons (Fixed - now using buttons instead of anchor tags) */}
+        {/* Footer with Social Buttons */}
         <div className="border-t border-white/10 px-6 py-4 bg-black/20">
           <div className="flex flex-wrap justify-between items-center gap-3 text-sm">
             <div className="flex gap-5">
@@ -439,13 +550,6 @@ function CustomerForm() {
                 aria-label="Follow us on TikTok"
               >
                 <i className="fab fa-tiktok text-lg"></i>
-              </button>
-              <button 
-                onClick={() => handleSocialClick('twitter')}
-                className="text-cyan-300 hover:text-white transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-cyan-400 rounded-full p-1"
-                aria-label="Follow us on Twitter"
-              >
-                <i className="fab fa-twitter text-lg"></i>
               </button>
             </div>
             <div className="text-gray-400 text-xs text-center">
